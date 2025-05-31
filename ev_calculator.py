@@ -1,10 +1,14 @@
 # ev_calculator.py
-import requests
+import urllib3
+import json
 import logging
 from config import TAI_KEY
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# Initialize urllib3 pool manager
+http = urllib3.PoolManager()
 
 def calc_ev(messages: list) -> int:
     logger.info(f"Calculating EV for {len(messages)} messages")
@@ -31,20 +35,35 @@ def calc_ev(messages: list) -> int:
         "stream": False
     }
 
-    response = requests.post(url, headers=headers, json=payload)
-    response_data = response.json()
-        
-    if response.status_code != 200 or "choices" not in response_data:
-        logger.error("Failed to fetch response from Together AI API", response_data)
-        return -3
-
-    logger.info("EV Response: " + response_data["choices"][0]["message"]["content"])
     try:
-        ev = int(response_data["choices"][0]["message"]["content"])
-        return ev
-    except ValueError:
-        logger.error('The AI did not return a valid number')
-        return -2
+        logger.info("Sending request to Together AI API")
+        encoded_data = json.dumps(payload).encode('utf-8')
+        response = http.request(
+            'POST',
+            url,
+            body=encoded_data,
+            headers=headers
+        )
+        
+        if response.status != 200:
+            logger.error(f"API call failed with status {response.status}: {response.data.decode('utf-8')}")
+            return -3
+
+        response_data = json.loads(response.data.decode('utf-8'))
+        if "choices" not in response_data:
+            logger.error(f"Invalid API response format: {response_data}")
+            return -3
+
+        logger.info("EV Response: " + response_data["choices"][0]["message"]["content"])
+        try:
+            ev = int(response_data["choices"][0]["message"]["content"])
+            return ev
+        except ValueError:
+            logger.error('The AI did not return a valid number')
+            return -2
+    except Exception as e:
+        logger.error(f"Error in calc_ev: {str(e)}")
+        return -3
 
 
 def parse_messages(realtor_email: str, emails: list) -> list:
