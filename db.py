@@ -12,7 +12,7 @@ lambda_client = boto3.client('lambda', region_name=AWS_REGION)
 
 def invoke_db_select(table_name: str, index_name: Optional[str], key_name: str, key_value: Any) -> Optional[Dict[str, Any]]:
     """
-    Generic function to invoke the db-select Lambda.
+    Generic function to invoke the db-select Lambda for read operations only.
     Returns the parsed response or None if the invocation failed.
     """
     try:
