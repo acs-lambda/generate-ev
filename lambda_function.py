@@ -5,6 +5,7 @@ from typing import Dict, Any, List
 
 from ev_calculator import calc_ev, parse_messages
 from db import get_email_chain, get_account_email
+from flag_llm import invoke_flag_llm
 
 # Set up logging
 logger = logging.getLogger()
@@ -12,7 +13,7 @@ logger.setLevel(logging.INFO)
 
 dynamodb = boto3.resource('dynamodb')
 
-def update_thread_ev(conversation_id: str, ev_score: int) -> None:
+def update_thread_ev(conversation_id: str, ev_score: int, should_flag: bool) -> None:
     """
     Updates the thread with the new EV score and flag status.
     """
@@ -22,15 +23,16 @@ def update_thread_ev(conversation_id: str, ev_score: int) -> None:
             Key={
                 'conversation_id': conversation_id
             },
-            UpdateExpression='SET #flag = :flag',
+            UpdateExpression='SET #flag = :flag, ev_score = :ev',
             ExpressionAttributeNames={
                 '#flag': 'flag'
             },
             ExpressionAttributeValues={
-                ':flag': ev_score >= 80
+                ':flag': should_flag,
+                ':ev': str(ev_score)
             }
         )
-        logger.info(f"Updated thread flag for conversation {conversation_id} with EV score {ev_score}")
+        logger.info(f"Updated thread flag for conversation {conversation_id} with EV score {ev_score} and flag {should_flag}")
     except Exception as e:
         logger.error(f"Error updating thread flag: {str(e)}")
         raise
@@ -73,8 +75,12 @@ def calculate_ev_for_conversation(conversation_id: str, message_id: str, account
         ev = calc_ev(parse_messages(realtor_email, chain))
         logger.info(f"Calculated EV score: {ev} for conversation {conversation_id}")
 
+        # Determine if the email should be flagged using the flag LLM
+        should_flag = invoke_flag_llm(chain)
+        logger.info(f"Flag LLM decision: {should_flag} for conversation {conversation_id}")
+
         # Update both thread and conversation
-        update_thread_ev(conversation_id, ev)
+        update_thread_ev(conversation_id, ev, should_flag)
         update_conversation_ev(conversation_id, message_id, ev)
 
         return {
