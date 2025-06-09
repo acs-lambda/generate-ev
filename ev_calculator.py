@@ -36,32 +36,42 @@ def calc_ev(messages: list) -> int:
             "RULES (follow exactly):\n"
             "1. Always return exactly one integer between 0 and 100, with no extra text, no explanations, "
             "and no punctuation.\n"
-            "2. Do NOT default to multiples of 10 or 5 unless it genuinely reflects your judgment. "
-            "If you feel there is, say, roughly a 14% chance, output 14; if it looks like a 27% chance, output 27.\n"
-            "3. Evaluate all of the following factors:\n"
-            "   • Buyer’s urgency (e.g., “Can I tour tomorrow?” vs. “Just browsing”).\n"
-            "   • Specific questions about financing, timelines, or next steps.\n"
-            "   • Positive signals (e.g., “Looks perfect—I want to move forward”).\n"
-            "   • Any hesitations or vague interest (“Maybe later,” “Just looking around”).\n"
-            "   • The total number of back‐and‐forth messages and overall engagement level.\n"
-            "   • Mentions of being pre‐approved, ready to tour, or ready to make an offer.\n"
-            "4. If you have very little context, still make your best speculative guess "
-            "(e.g., even with just “Thanks, I’ll pass for now,” you might output 5 or 8).\n"
-            "5. Under no circumstances output anything other than that single integer. "
-            "No labels, no notes, no newlines—nothing but a numeric digit string (e.g., “14”).\n\n"
+            "2. Provide highly granular scores that reflect subtle differences in buyer behavior. "
+            "For example:\n"
+            "   • A buyer asking about viewing next week might be 37% vs 35% if they also mentioned "
+            "   their pre-approval status\n"
+            "   • A buyer expressing interest but with some hesitation might be 42% vs 40% if they "
+            "   asked specific questions about the property\n"
+            "3. NEVER default to round numbers (like 20, 25, 30) unless the signals are truly ambiguous. "
+            "Use the full range of numbers to capture nuanced differences.\n"
+            "4. Evaluate all of the following factors with precise weighting:\n"
+            "   • Buyer's urgency (e.g., 'Can I tour tomorrow?' = +15-20%, 'Maybe next month' = +5-10%)\n"
+            "   • Specific questions about financing (+8-12%), timelines (+5-10%), or next steps (+7-15%)\n"
+            "   • Positive signals (e.g., 'Looks perfect' = +20-25%, 'Interesting' = +5-8%)\n"
+            "   • Hesitations or vague interest (-10-15% for each major hesitation)\n"
+            "   • Message frequency and engagement (each back-and-forth = +3-7%)\n"
+            "   • Pre-approval status (+12-18%), tour readiness (+15-20%), offer readiness (+25-30%)\n"
+            "5. If you have very little context, still make your best speculative guess "
+            "but use precise numbers (e.g., 'Thanks, I'll pass for now' = 7, not 5 or 10).\n"
+            "6. Under no circumstances output anything other than that single integer. "
+            "No labels, no notes, no newlines—nothing but a numeric digit string.\n\n"
             "FEW‐SHOT EXAMPLES (for illustration only; do not include anything but the integer after you see the real emails):\n\n"
             "Example 1:\n"
-            "Buyer: “Thanks, I’ll think about it. Just browsing for now.”\n"
-            "Realtor: “Sure, let me know if you have any questions.”\n"
-            "→ 8\n\n"
+            "Buyer: 'Thanks, I'll think about it. Just browsing for now.'\n"
+            "Realtor: 'Sure, let me know if you have any questions.'\n"
+            "→ 7\n\n"
             "Example 2:\n"
-            "Buyer: “I’m pre‐approved and would like to tour 123 Main St this Saturday.”\n"
-            "Realtor: “Booked for Saturday at 2 p.m.; let me know if you need anything else.”\n"
-            "→ 63\n\n"
+            "Buyer: 'I'm pre‐approved and would like to tour 123 Main St this Saturday.'\n"
+            "Realtor: 'Booked for Saturday at 2 p.m.; let me know if you need anything else.'\n"
+            "→ 67\n\n"
             "Example 3:\n"
-            "Buyer: “Can you send comps and more details on HOA fees? I’m hoping to submit an offer next week.”\n"
-            "Realtor: “Absolutely—comps are attached. I’ll schedule a call for tomorrow.”\n"
-            "→ 81\n\n"
+            "Buyer: 'Can you send comps and more details on HOA fees? I'm hoping to submit an offer next week.'\n"
+            "Realtor: 'Absolutely—comps are attached. I'll schedule a call for tomorrow.'\n"
+            "→ 83\n\n"
+            "Example 4:\n"
+            "Buyer: 'The house looks nice but I'm still considering a few other options.'\n"
+            "Realtor: 'I understand. Would you like to see some similar properties?'\n"
+            "→ 31\n\n"
             "Now evaluate the following messages in chronological order and return exactly one integer "
             "(0–100) that best estimates the percent chance of conversion.\n"
         )
@@ -73,10 +83,10 @@ def calc_ev(messages: list) -> int:
         "model": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
         "messages": payload_messages,
         "max_tokens": 3,
-        "temperature": 0.0,
-        "top_p": 0.0,
-        "top_k": 1,
-        "repetition_penalty": 1,
+        "temperature": 0.3,
+        "top_p": 0.9,
+        "top_k": 40,
+        "repetition_penalty": 1.2,
         "stop": ["<|im_end|>", "<|endoftext|>"],
         "stream": False
     }
