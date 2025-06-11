@@ -99,37 +99,79 @@ def calculate_ev_for_conversation(conversation_id: str, message_id: str, account
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda handler for EV calculation.
-    Expected event format:
+    Handles both direct invocation and API Gateway events.
+    
+    Direct invocation format:
     {
         'conversation_id': str,
         'message_id': str,
         'account_id': str
     }
+    
+    API Gateway format:
+    {
+        'body': JSON string containing {
+            'conversation_id': str,
+            'response_id': str,  # Used as message_id
+            'account_id': str
+        }
+    }
     """
     try:
+        # Check if this is an API Gateway event
+        if 'body' in event and isinstance(event['body'], str):
+            try:
+                payload = json.loads(event['body'])
+            except json.JSONDecodeError:
+                raise ValueError("Invalid JSON in request body")
+            
+            # Map API Gateway fields to expected format
+            event_data = {
+                'conversation_id': payload.get('conversation_id'),
+                'message_id': payload.get('response_id'),  # Map response_id to message_id
+                'account_id': payload.get('account_id')
+            }
+        else:
+            # Direct invocation format
+            event_data = event
+
         # Validate input
         required_fields = ['conversation_id', 'message_id', 'account_id']
-        for field in required_fields:
-            if field not in event:
-                raise ValueError(f"Missing required field: {field}")
+        missing_fields = [field for field in required_fields if not event_data.get(field)]
+        if missing_fields:
+            raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
 
         # Calculate EV and update database
         result = calculate_ev_for_conversation(
-            event['conversation_id'],
-            event['message_id'],
-            event['account_id']
+            event_data['conversation_id'],
+            event_data['message_id'],
+            event_data['account_id']
         )
 
-        return {
-            'statusCode': 200 if result['status'] == 'success' else 500,
+        # Format response based on success/failure
+        status_code = 200 if result['status'] == 'success' else 500
+        response = {
+            'statusCode': status_code,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'  # Enable CORS
+            },
             'body': json.dumps(result)
         }
+        
+        return response
+
     except Exception as e:
         logger.error(f"Error in lambda handler: {str(e)}")
-        return {
+        error_response = {
             'statusCode': 500,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'  # Enable CORS
+            },
             'body': json.dumps({
                 'status': 'error',
                 'error': str(e)
             })
-        } 
+        }
+        return error_response 
