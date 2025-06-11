@@ -1,7 +1,8 @@
 import json
 import boto3
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
+from db import store_ai_invocation
 
 # Set up logging
 logger = logging.getLogger()
@@ -24,10 +25,18 @@ def format_conversation_for_llm(chain: List[Dict[str, Any]]) -> str:
     
     return "\n".join(formatted_chain)
 
-def invoke_flag_llm(conversation_chain: List[Dict[str, Any]]) -> bool:
+def invoke_flag_llm(conversation_chain: List[Dict[str, Any]], account_id: str, conversation_id: str) -> Tuple[bool, Dict[str, int]]:
     """
     Invokes the Together AI LLM to determine if the email should be flagged.
-    Returns True if the email should be flagged, False otherwise.
+    Returns a tuple of (flag_decision, token_usage).
+    
+    Args:
+        conversation_chain: List of email messages
+        account_id: The user's account ID
+        conversation_id: The conversation ID
+    
+    Returns:
+        Tuple[bool, Dict[str, int]]: (flag decision, token usage info)
     """
     try:
         # Format the conversation for the LLM
@@ -83,20 +92,36 @@ Based on the conversation above, should this email be flagged for human realtor 
         response_payload = json.loads(response['Payload'].read())
         if response_payload['statusCode'] != 200:
             logger.error(f"Failed to get LLM response: {response_payload}")
-            return False
+            return False, {'input_tokens': 0, 'output_tokens': 0}
             
         result = json.loads(response_payload['body'])
         if result['status'] != 'success':
             logger.error(f"LLM response generation failed: {result}")
-            return False
+            return False, {'input_tokens': 0, 'output_tokens': 0}
+            
+        # Get token usage from response
+        token_usage = {
+            'input_tokens': result.get('usage', {}).get('prompt_tokens', 0),
+            'output_tokens': result.get('usage', {}).get('completion_tokens', 0)
+        }
+        
+        # Store the invocation record
+        store_ai_invocation(
+            associated_account=account_id,
+            input_tokens=token_usage['input_tokens'],
+            output_tokens=token_usage['output_tokens'],
+            llm_email_type='flag',
+            model_name='meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8',
+            conversation_id=conversation_id
+        )
             
         # Get the response text and clean it
         response_text = result['response'].strip().lower()
         logger.info(f"Flag LLM response: {response_text}")
         
         # Return True if the response is "flag", False otherwise
-        return response_text == "flag"
+        return response_text == "flag", token_usage
         
     except Exception as e:
         logger.error(f"Error invoking flag LLM: {str(e)}")
-        return False 
+        return False, {'input_tokens': 0, 'output_tokens': 0} 

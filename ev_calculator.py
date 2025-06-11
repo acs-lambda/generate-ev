@@ -3,7 +3,9 @@ import urllib3
 import json
 import logging
 import re
+from typing import Dict, Any, Tuple
 from config import TAI_KEY
+from db import store_ai_invocation
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -11,13 +13,15 @@ logger.setLevel(logging.INFO)
 # Initialize urllib3 pool manager
 http = urllib3.PoolManager()
 
-def calc_ev(messages: list) -> int:
+def calc_ev(messages: list, account_id: str, conversation_id: str) -> Tuple[int, Dict[str, int]]:
     """
     Sends a chain of messages to the LLM to get a single integer (0–100)
     indicating the percent chance the lead will convert. The system prompt
     has been updated so the AI outputs a granular integer (e.g., 14, 27, 63)
     rather than rounding to multiples of 5 or 10. We also retry once if the model
     fails to return a valid integer.
+    
+    Returns a tuple of (ev_score, token_usage).
     """
     logger.info(f"Calculating EV for {len(messages)} messages")
     url = "https://api.together.xyz/v1/chat/completions"
@@ -105,12 +109,18 @@ def calc_ev(messages: list) -> int:
 
             if response.status != 200:
                 logger.error(f"API call failed with status {response.status}: {response.data.decode('utf-8')}")
-                return -3
+                return -3, {'input_tokens': 0, 'output_tokens': 0}
 
             response_data = json.loads(response.data.decode('utf-8'))
             if "choices" not in response_data:
                 logger.error(f"Invalid API response format: {response_data}")
-                return -3
+                return -3, {'input_tokens': 0, 'output_tokens': 0}
+
+            # Get token usage from response
+            token_usage = {
+                'input_tokens': response_data.get('usage', {}).get('prompt_tokens', 0),
+                'output_tokens': response_data.get('usage', {}).get('completion_tokens', 0)
+            }
 
             raw_content = response_data["choices"][0]["message"]["content"].strip()
             logger.info("EV raw response: " + raw_content)
@@ -118,17 +128,29 @@ def calc_ev(messages: list) -> int:
             # Check if the content is exactly a 1–3 digit integer (0–100)
             if re.fullmatch(r"\d{1,3}", raw_content):
                 ev = int(raw_content)
-                return max(0, min(100, ev))
+                ev_score = max(0, min(100, ev))
+                
+                # Store the invocation record
+                store_ai_invocation(
+                    associated_account=account_id,
+                    input_tokens=token_usage['input_tokens'],
+                    output_tokens=token_usage['output_tokens'],
+                    llm_email_type='ev_calculation',
+                    model_name='meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8',
+                    conversation_id=conversation_id
+                )
+                
+                return ev_score, token_usage
             else:
                 logger.warning(f"Attempt {attempt+1}: AI returned non‐integer \"{raw_content}\". Retrying...")
 
         # If we exit the loop without returning, it never gave a valid integer.
         logger.error("The AI did not return a valid integer after retries")
-        return -2
+        return -2, {'input_tokens': 0, 'output_tokens': 0}
 
     except Exception as e:
         logger.error(f"Error in calc_ev: {str(e)}")
-        return -3
+        return -3, {'input_tokens': 0, 'output_tokens': 0}
 
 
 def parse_messages(realtor_email: str, emails: list) -> list:

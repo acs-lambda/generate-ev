@@ -4,6 +4,8 @@ import boto3
 import logging
 from typing import Dict, Any, Optional, List
 from config import AWS_REGION, DB_SELECT_LAMBDA
+import time
+import uuid
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -143,4 +145,54 @@ def update_conversation_ev(conversation_id: str, message_id: str, ev_score: int)
         return True
     except Exception as e:
         logger.error(f"Error updating conversation EV score: {str(e)}")
+        return False
+
+def store_ai_invocation(
+    associated_account: str,
+    input_tokens: int,
+    output_tokens: int,
+    llm_email_type: str,
+    model_name: str,
+    conversation_id: Optional[str] = None
+) -> bool:
+    """
+    Store an AI invocation record in DynamoDB.
+    
+    Args:
+        associated_account: The user's account ID
+        input_tokens: Number of input tokens used
+        output_tokens: Number of output tokens generated
+        llm_email_type: Type of LLM invocation (e.g., 'flag', 'ev_calculation')
+        model_name: Name of the model used
+        conversation_id: Optional conversation ID if applicable
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        invocations_table = dynamodb.Table('Invocations')
+        
+        # Create timestamp for sorting
+        timestamp = int(time.time() * 1000)  # Current time in milliseconds
+        
+        item = {
+            'id': str(uuid.uuid4()),  # Generate unique ID for the invocation
+            'associated_account': associated_account,
+            'input_tokens': input_tokens,
+            'output_tokens': output_tokens,
+            'llm_email_type': llm_email_type,
+            'model_name': model_name,
+            'timestamp': timestamp
+        }
+        
+        # Add conversation_id if provided
+        if conversation_id:
+            item['conversation_id'] = conversation_id
+            
+        invocations_table.put_item(Item=item)
+        logger.info(f"Successfully stored AI invocation record for account {associated_account}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error storing AI invocation record: {str(e)}")
         return False 

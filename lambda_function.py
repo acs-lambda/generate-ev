@@ -72,11 +72,11 @@ def calculate_ev_for_conversation(conversation_id: str, message_id: str, account
             raise ValueError("Could not get email chain or realtor email")
 
         # Calculate EV
-        ev = calc_ev(parse_messages(realtor_email, chain))
+        ev, ev_token_usage = calc_ev(parse_messages(realtor_email, chain), account_id, conversation_id)
         logger.info(f"Calculated EV score: {ev} for conversation {conversation_id}")
 
         # Determine if the email should be flagged using the flag LLM
-        should_flag = invoke_flag_llm(chain)
+        should_flag, flag_token_usage = invoke_flag_llm(chain, account_id, conversation_id)
         logger.info(f"Flag LLM decision: {should_flag} for conversation {conversation_id}")
 
         # Update both thread and conversation
@@ -87,7 +87,11 @@ def calculate_ev_for_conversation(conversation_id: str, message_id: str, account
             'ev_score': ev,
             'conversation_id': conversation_id,
             'message_id': message_id,
-            'status': 'success'
+            'status': 'success',
+            'token_usage': {
+                'ev_calculation': ev_token_usage,
+                'flag_determination': flag_token_usage
+            }
         }
     except Exception as e:
         logger.error(f"Error calculating EV: {str(e)}")
