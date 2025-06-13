@@ -227,6 +227,10 @@ def check_and_update_aws_rate_limit(account_id: str) -> Tuple[bool, str]:
     Returns (is_allowed, message).
     """
     try:
+        # Calculate TTL at the start of the function
+        current_time_s = int(time.time())
+        ttl_time_s = current_time_s + 60  # 1 minute from now in seconds
+
         # Get user's rate limit
         rate_limits = get_user_rate_limits(account_id)
         aws_limit = rate_limits['rl_aws']
@@ -242,9 +246,6 @@ def check_and_update_aws_rate_limit(account_id: str) -> Tuple[bool, str]:
             current_invocations = int(response['Item'].get('invocations', 0))
         else:
             # If no record exists, create one with TTL set to 1 minute from now
-            current_time_s = int(time.time())
-            ttl_time_s = current_time_s + 60  # 1 minute from now in seconds
-            
             rl_table.put_item(
                 Item={
                     'associated_account': account_id,
