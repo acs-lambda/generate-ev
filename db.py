@@ -242,14 +242,14 @@ def check_and_update_aws_rate_limit(account_id: str) -> Tuple[bool, str]:
             current_invocations = int(response['Item'].get('invocations', 0))
         else:
             # If no record exists, create one with TTL set to 1 minute from now
-            current_time_ms = int(time.time() * 1000)
-            ttl_time_ms = current_time_ms + (60 * 1000)  # 1 minute from now in milliseconds
+            current_time_s = int(time.time())
+            ttl_time_s = current_time_s + 60  # 1 minute from now in seconds
             
             rl_table.put_item(
                 Item={
                     'associated_account': account_id,
                     'invocations': 1,
-                    'ttl': ttl_time_ms
+                    'ttl': ttl_time_s
                 }
             )
             return True, ""
@@ -292,14 +292,14 @@ def check_and_update_ai_rate_limit(account_id: str) -> Tuple[bool, str]:
             current_invocations = int(response['Item'].get('invocations', 0))
         else:
             # If no record exists, create one with TTL set to 1 minute from now
-            current_time_ms = int(time.time() * 1000)
-            ttl_time_ms = current_time_ms + (60 * 1000)  # 1 minute from now in milliseconds
+            current_time_s = int(time.time())
+            ttl_time_s = current_time_s + 60  # 1 minute from now in seconds
             
             rl_table.put_item(
                 Item={
                     'associated_account': account_id,
                     'invocations': 1,
-                    'ttl': ttl_time_ms
+                    'ttl': ttl_time_s
                 }
             )
             return True, ""
