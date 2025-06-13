@@ -261,8 +261,14 @@ def check_and_update_aws_rate_limit(account_id: str) -> Tuple[bool, str]:
         # Update invocation count
         rl_table.update_item(
             Key={'associated_account': account_id},
-            UpdateExpression='SET invocations = :val',
-            ExpressionAttributeValues={':val': current_invocations + 1}
+            UpdateExpression='SET invocations = :val, #ttl = :ttl',
+            ExpressionAttributeValues={
+                ':val': current_invocations + 1,
+                ':ttl': ttl_time_s
+            },
+            ExpressionAttributeNames={
+                '#ttl': 'ttl'
+            }
         )
         
         return True, ""
