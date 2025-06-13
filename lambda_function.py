@@ -4,7 +4,7 @@ import logging
 from typing import Dict, Any, List
 
 from ev_calculator import calc_ev, parse_messages
-from db import get_email_chain, get_account_email
+from db import get_email_chain, get_account_email, check_and_update_aws_rate_limit
 from flag_llm import invoke_flag_llm
 
 # Set up logging
@@ -145,6 +145,21 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if missing_fields:
             raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
 
+        # Check AWS rate limit
+        is_allowed, message = check_and_update_aws_rate_limit(event_data['account_id'])
+        if not is_allowed:
+            return {
+                'statusCode': 429,
+                'headers': {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                },
+                'body': json.dumps({
+                    'status': 'error',
+                    'error': message
+                })
+            }
+
         # Calculate EV and update database
         result = calculate_ev_for_conversation(
             event_data['conversation_id'],
@@ -158,7 +173,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'statusCode': status_code,
             'headers': {
                 'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'  # Enable CORS
+                'Access-Control-Allow-Origin': '*'
             },
             'body': json.dumps(result)
         }
@@ -171,7 +186,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'statusCode': 500,
             'headers': {
                 'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'  # Enable CORS
+                'Access-Control-Allow-Origin': '*'
             },
             'body': json.dumps({
                 'status': 'error',

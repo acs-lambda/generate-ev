@@ -2,7 +2,7 @@ import json
 import boto3
 import logging
 from typing import Dict, Any, List, Tuple
-from db import store_ai_invocation
+from db import store_ai_invocation, check_and_update_ai_rate_limit
 
 # Set up logging
 logger = logging.getLogger()
@@ -39,6 +39,12 @@ def invoke_flag_llm(conversation_chain: List[Dict[str, Any]], account_id: str, c
         Tuple[bool, Dict[str, int]]: (flag decision, token usage info)
     """
     try:
+        # Check AI rate limit
+        is_allowed, message = check_and_update_ai_rate_limit(account_id)
+        if not is_allowed:
+            logger.error(f"AI rate limit exceeded for account {account_id}")
+            return False, {'input_tokens': 0, 'output_tokens': 0}
+            
         # Format the conversation for the LLM
         formatted_conversation = format_conversation_for_llm(conversation_chain)
         
