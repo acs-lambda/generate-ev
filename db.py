@@ -2,7 +2,7 @@
 import json
 import boto3
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from config import AWS_REGION, DB_SELECT_LAMBDA
 import time
 import uuid
@@ -195,4 +195,128 @@ def store_ai_invocation(
         
     except Exception as e:
         logger.error(f"Error storing AI invocation record: {str(e)}")
-        return False 
+        return False
+
+def get_user_rate_limits(account_id: str) -> Dict[str, int]:
+    """
+    Get rate limits for a user from the Users table.
+    Returns a dict with 'rl_aws' and 'rl_ai' limits.
+    """
+    try:
+        users_table = dynamodb.Table('Users')
+        response = users_table.get_item(
+            Key={'id': account_id}
+        )
+        
+        if 'Item' not in response:
+            logger.error(f"User {account_id} not found in Users table")
+            return {'rl_aws': 0, 'rl_ai': 0}
+            
+        user = response['Item']
+        return {
+            'rl_aws': int(user.get('rl_aws', 0)),
+            'rl_ai': int(user.get('rl_ai', 0))
+        }
+    except Exception as e:
+        logger.error(f"Error getting user rate limits: {str(e)}")
+        return {'rl_aws': 0, 'rl_ai': 0}
+
+def check_and_update_aws_rate_limit(account_id: str) -> Tuple[bool, str]:
+    """
+    Check and update AWS rate limit for an account.
+    Returns (is_allowed, message).
+    """
+    try:
+        # Get user's rate limit
+        rate_limits = get_user_rate_limits(account_id)
+        aws_limit = rate_limits['rl_aws']
+        
+        # Get current invocation count
+        rl_table = dynamodb.Table('RL_AWS')
+        response = rl_table.get_item(
+            Key={'associated_account': account_id}
+        )
+        
+        current_invocations = 0
+        if 'Item' in response:
+            current_invocations = int(response['Item'].get('invocations', 0))
+        else:
+            # If no record exists, create one with TTL set to 1 minute from now
+            current_time_ms = int(time.time() * 1000)
+            ttl_time_ms = current_time_ms + (60 * 1000)  # 1 minute from now in milliseconds
+            
+            rl_table.put_item(
+                Item={
+                    'associated_account': account_id,
+                    'invocations': 1,
+                    'ttl': ttl_time_ms
+                }
+            )
+            return True, ""
+            
+        # Check if limit exceeded
+        if current_invocations >= aws_limit:
+            return False, "AWS rate limit exceeded"
+            
+        # Update invocation count
+        rl_table.update_item(
+            Key={'associated_account': account_id},
+            UpdateExpression='SET invocations = :val',
+            ExpressionAttributeValues={':val': current_invocations + 1}
+        )
+        
+        return True, ""
+        
+    except Exception as e:
+        logger.error(f"Error checking AWS rate limit: {str(e)}")
+        return False, "Error checking AWS rate limit"
+
+def check_and_update_ai_rate_limit(account_id: str) -> Tuple[bool, str]:
+    """
+    Check and update AI rate limit for an account.
+    Returns (is_allowed, message).
+    """
+    try:
+        # Get user's rate limit
+        rate_limits = get_user_rate_limits(account_id)
+        ai_limit = rate_limits['rl_ai']
+        
+        # Get current invocation count
+        rl_table = dynamodb.Table('RL_AI')
+        response = rl_table.get_item(
+            Key={'associated_account': account_id}
+        )
+        
+        current_invocations = 0
+        if 'Item' in response:
+            current_invocations = int(response['Item'].get('invocations', 0))
+        else:
+            # If no record exists, create one with TTL set to 1 minute from now
+            current_time_ms = int(time.time() * 1000)
+            ttl_time_ms = current_time_ms + (60 * 1000)  # 1 minute from now in milliseconds
+            
+            rl_table.put_item(
+                Item={
+                    'associated_account': account_id,
+                    'invocations': 1,
+                    'ttl': ttl_time_ms
+                }
+            )
+            return True, ""
+            
+        # Check if limit exceeded
+        if current_invocations >= ai_limit:
+            return False, "AI rate limit exceeded"
+            
+        # Update invocation count
+        rl_table.update_item(
+            Key={'associated_account': account_id},
+            UpdateExpression='SET invocations = :val',
+            ExpressionAttributeValues={':val': current_invocations + 1}
+        )
+        
+        return True, ""
+        
+    except Exception as e:
+        logger.error(f"Error checking AI rate limit: {str(e)}")
+        return False, "Error checking AI rate limit" 
