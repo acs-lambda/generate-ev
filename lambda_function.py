@@ -4,8 +4,9 @@ import logging
 from typing import Dict, Any, List
 
 from ev_calculator import calc_ev, parse_messages
-from db import get_email_chain, get_account_email, check_and_update_aws_rate_limit
+from db import get_email_chain, get_account_email
 from flag_llm import invoke_flag_llm
+from utils import parse_event, authorize, AuthorizationError, invoke
 
 # Set up logging
 logger = logging.getLogger()
@@ -100,6 +101,27 @@ def calculate_ev_for_conversation(conversation_id: str, message_id: str, account
             'error': str(e)
         }
 
+def check_aws_rate_limit(account_id: str) -> tuple[bool, str]:
+    """
+    Check AWS rate limit by invoking the rate-limit-aws Lambda function.
+    Returns (is_allowed, message).
+    """
+    try:
+        response = invoke('RateLimitAWS', {
+            'account_id': account_id
+        })
+        
+        if response['statusCode'] != 200:
+            logger.error(f"Rate limit check failed: {response['body']}")
+            return False, response['body'].get('message', 'Rate limit check failed')
+            
+        result = response['body']
+        return result.get('is_allowed', False), result.get('message', '')
+        
+    except Exception as e:
+        logger.error(f"Error checking AWS rate limit: {str(e)}")
+        return False, "Error checking AWS rate limit"
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda handler for EV calculation.
@@ -109,7 +131,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     {
         'conversation_id': str,
         'message_id': str,
-        'account_id': str
+        'account_id': str,  # Used as both account_id and user_id
+        'session_id': str
     }
     
     API Gateway format:
@@ -117,36 +140,45 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         'body': JSON string containing {
             'conversation_id': str,
             'response_id': str,  # Used as message_id
-            'account_id': str
+            'account_id': str,  # Used as both account_id and user_id
+            'session_id': str
         }
     }
     """
     try:
-        # Check if this is an API Gateway event
-        if 'body' in event and isinstance(event['body'], str):
-            try:
-                payload = json.loads(event['body'])
-            except json.JSONDecodeError:
-                raise ValueError("Invalid JSON in request body")
-            
-            # Map API Gateway fields to expected format
-            event_data = {
-                'conversation_id': payload.get('conversation_id'),
-                'message_id': payload.get('response_id'),  # Map response_id to message_id
-                'account_id': payload.get('account_id')
-            }
-        else:
-            # Direct invocation format
-            event_data = event
+        # Parse the event using utils
+        event_data = parse_event(event)
+        
+        # Extract required fields
+        conversation_id = event_data.get('conversation_id')
+        message_id = event_data.get('message_id') or event_data.get('response_id')  # Handle both formats
+        account_id = event_data.get('account_id')
+        session_id = event_data.get('session_id')
 
         # Validate input
-        required_fields = ['conversation_id', 'message_id', 'account_id']
+        required_fields = ['conversation_id', 'account_id', 'session_id']
         missing_fields = [field for field in required_fields if not event_data.get(field)]
         if missing_fields:
             raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
 
-        # Check AWS rate limit
-        is_allowed, message = check_and_update_aws_rate_limit(event_data['account_id'])
+        # Authorize the request using account_id as user_id
+        try:
+            authorize(account_id, session_id)
+        except AuthorizationError as e:
+            return {
+                'statusCode': 401,
+                'headers': {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                },
+                'body': json.dumps({
+                    'status': 'error',
+                    'error': str(e)
+                })
+            }
+
+        # Check AWS rate limit using the rate-limit-aws Lambda
+        is_allowed, message = check_aws_rate_limit(account_id)
         if not is_allowed:
             return {
                 'statusCode': 429,
@@ -162,9 +194,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         # Calculate EV and update database
         result = calculate_ev_for_conversation(
-            event_data['conversation_id'],
-            event_data['message_id'],
-            event_data['account_id']
+            conversation_id,
+            message_id,
+            account_id
         )
 
         # Format response based on success/failure
@@ -180,10 +212,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         return response
 
-    except Exception as e:
-        logger.error(f"Error in lambda handler: {str(e)}")
-        error_response = {
-            'statusCode': 500,
+    except ValueError as e:
+        logger.error(f"Validation error: {str(e)}")
+        return {
+            'statusCode': 400,
             'headers': {
                 'Content-Type': 'application/json',
                 'Access-Control-Allow-Origin': '*'
@@ -193,4 +225,16 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'error': str(e)
             })
         }
-        return error_response 
+    except Exception as e:
+        logger.error(f"Error in lambda handler: {str(e)}")
+        return {
+            'statusCode': 500,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            'body': json.dumps({
+                'status': 'error',
+                'error': str(e)
+            })
+        } 
