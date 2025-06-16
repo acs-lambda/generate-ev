@@ -214,10 +214,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     try:
         # Extract and validate required fields
-        body = json.loads(event.get('body', '{}'))
-        conversation_id = body.get('conversation_id')
-        account_id = body.get('account_id')
-        session_id = body.get('session_id')
+        parsed_event = parse_event(event)
+        conversation_id = parsed_event.get('conversation_id')
+        account_id = parsed_event.get('account_id')
+        session_id = parsed_event.get('session_id')
         
         if not all([conversation_id, account_id, session_id]):
             return {
@@ -230,6 +230,34 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     'error': 'Missing required fields: conversation_id, account_id, or session_id'
                 })
             }
+        
+        if session_id != AUTH_BP:
+            try:
+                authorize(account_id, session_id)
+            except AuthorizationError as e:
+                return {
+                    'statusCode': 401,
+                    'headers': {
+                        'Access-Control-Allow-Origin': '*'
+                    },
+                    'body': json.dumps({
+                        'status': 'error',
+                        'error': str(e)
+                    })
+                }
+            except Exception as e:
+                logger.error(f"Error authorizing: {str(e)}")
+                return {
+                    'statusCode': 500,
+                    'headers': {
+                        'Access-Control-Allow-Origin': '*'
+                    },
+                    'body': json.dumps({
+                        'status': 'error',
+                        'error': str(e)
+                    })
+                }
+        
         
         # Check AWS rate limit
         is_allowed, message = check_aws_rate_limit(account_id)
