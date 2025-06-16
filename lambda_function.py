@@ -2,17 +2,44 @@ import json
 import boto3
 import logging
 from typing import Dict, Any, List, Tuple
+import time
 
 from ev_calculator import calc_ev, parse_messages
 from db import get_email_chain, get_account_email
 from flag_llm import invoke_flag_llm
 from utils import parse_event, authorize, AuthorizationError, invoke
+import os
 
 # Set up logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+AUTH_BP = os.environ.get('AUTH_BP', '')
+
 dynamodb = boto3.resource('dynamodb')
+
+def store_ai_invocation(associated_account: str, input_tokens: int, output_tokens: int, 
+                       llm_email_type: str, model_name: str, conversation_id: str, 
+                       session_id: str) -> bool:
+    """Store AI invocation record in DynamoDB."""
+    try:
+        ai_invocations_table = dynamodb.Table('Invocations')
+        ai_invocations_table.put_item(
+            Item={
+                'associated_account': associated_account,
+                'timestamp': int(time.time()),
+                'input_tokens': input_tokens,
+                'output_tokens': output_tokens,
+                'llm_email_type': llm_email_type,
+                'model_name': model_name,
+                'conversation_id': conversation_id,
+                'session_id': session_id
+            }
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error storing AI invocation: {str(e)}")
+        return False
 
 def update_thread_ev(conversation_id: str, ev_score: int, should_flag: bool, account_id: str, session_id: str) -> bool:
     """
