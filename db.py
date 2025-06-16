@@ -157,16 +157,15 @@ def store_ai_invocation(associated_account, conversation_id, llm_email_type, mod
     """
     invocation_id = f"{conversation_id}_{int(time.time())}_{llm_email_type}"
     update_data = {
-        'invocation_id': invocation_id,
+        'id': invocation_id,
         'associated_account': associated_account,
         'conversation_id': conversation_id,
         'llm_email_type': llm_email_type,
         'model_name': model_name,
         'input_tokens': input_tokens,
         'output_tokens': output_tokens,
-        'created_at': int(time.time()),
     }
-    return db_update('Invocations', 'invocation_id-index', 'invocation_id', invocation_id, update_data, associated_account, session_id)
+    return db_update('Invocations', 'id-index', 'id', invocation_id, update_data, associated_account, session_id)
 
 def check_and_update_ai_rate_limit(account_id, session_id):
     """
