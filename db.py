@@ -135,7 +135,7 @@ def check_and_update_ai_rate_limit(account_id, session_id):
         response = invoke_lambda('RateLimitAI', payload)
         
         if response.get('statusCode') != 200:
-            return True, "Rate limit check passed."
+            return False, "Rate limit check failed."
             
         body = json.loads(response.get('body', '{}'))
         return True, body.get('message', "Rate limit check passed.")

@@ -169,8 +169,8 @@ def lambda_handler(event, context):
         parsed_event = parse_event(event)
         
         conversation_id = parsed_event.get('conversation_id')
-        account_id = parsed_event.get('account_id')
-        session_id = parsed_event.get('session_id')
+        account_id = parsed_event.get('account_id') or parsed_event.get('account') or parsed_event.get('client_id')
+        session_id = parsed_event.get('session_id') or parsed_event.get('session')
         
         if not all([conversation_id, account_id, session_id]):
             raise LambdaError(400, "Missing required fields: conversation_id, account_id, or session_id.")
