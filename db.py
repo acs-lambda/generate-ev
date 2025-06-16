@@ -39,24 +39,66 @@ def get_associated_account(email: str, account_id: str, session_id: str) -> Opti
     return None
 
 def get_email_chain(conversation_id: str, account_id: str, session_id: str) -> List[Dict[str, Any]]:
-    """Get email chain for a conversation."""
-    result = db_select('Conversations', 'conversation_id-index', 'conversation_id', conversation_id, account_id, session_id)
+    """
+    Retrieves the email chain for a given conversation ID.
     
-    # Handle list response directly
-    if not isinstance(result, list):
-        return []
+    Args:
+        conversation_id (str): The conversation ID to retrieve
+        account_id (str): The account ID for authorization
+        session_id (str): The session ID for authorization
+    
+    Returns:
+        List[Dict[str, Any]]: List of email messages in the chain
+    """
+    try:
+        table = dynamodb.Table('Conversations')
         
-    # Sort by timestamp and format items
-    sorted_items = sorted(result, key=lambda x: x.get('timestamp', ''))
-    
-    return [{
-        'subject': item.get('subject', ''),
-        'body': item.get('body', ''),
-        'sender': item.get('sender', ''),
-        'timestamp': item.get('timestamp', ''),
-        'type': item.get('type', ''),
-        'message_id': item.get('response_id')
-    } for item in sorted_items]
+        # Determine if associated_account is part of the index
+        index_name = 'conversation_id-index'
+        key_name = 'conversation_id'
+        key_value = conversation_id
+        
+        # Check if associated_account is in the index name
+        if 'account' in index_name.lower():
+            # If associated_account is part of the index, include it in KeyConditionExpression
+            query_params = {
+                'IndexName': index_name,
+                'KeyConditionExpression': f"{key_name} = :key_value AND associated_account = :account_id",
+                'ExpressionAttributeValues': {
+                    ':key_value': key_value,
+                    ':account_id': account_id
+                }
+            }
+        else:
+            # If associated_account is not part of the index, use it as a filter
+            query_params = {
+                'IndexName': index_name,
+                'KeyConditionExpression': f"{key_name} = :key_value",
+                'FilterExpression': "associated_account = :account_id",
+                'ExpressionAttributeValues': {
+                    ':key_value': key_value,
+                    ':account_id': account_id
+                }
+            }
+            
+        response = table.query(**query_params)
+        items = response.get('Items', [])
+        
+        # Sort by timestamp and format items
+        sorted_items = sorted(items, key=lambda x: x.get('timestamp', ''))
+        
+        return [{
+            'subject': item.get('subject', ''),
+            'body': item.get('body', ''),
+            'sender': item.get('sender', ''),
+            'timestamp': item.get('timestamp', ''),
+            'type': item.get('type', ''),
+            'message_id': item.get('response_id')
+        } for item in sorted_items]
+        
+    except Exception as e:
+        logger.error(f"Error retrieving email chain: {str(e)}")
+        return []
 
 def get_account_email(account_id: str, session_id: str) -> Optional[str]:
     """Get account email by account ID."""
