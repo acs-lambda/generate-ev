@@ -13,7 +13,7 @@ logger.setLevel(logging.INFO)
 # Initialize urllib3 pool manager
 http = urllib3.PoolManager()
 
-def calc_ev(messages: list, account_id: str, conversation_id: str) -> Tuple[int, Dict[str, int]]:
+def calc_ev(messages: list, account_id: str, conversation_id: str, session_id: str) -> Tuple[int, Dict[str, int]]:
     """
     Sends a chain of messages to the LLM to get a single integer (0–100)
     indicating the percent chance the lead will convert. The system prompt
@@ -21,7 +21,14 @@ def calc_ev(messages: list, account_id: str, conversation_id: str) -> Tuple[int,
     rather than rounding to multiples of 5 or 10. We also retry once if the model
     fails to return a valid integer.
     
-    Returns a tuple of (ev_score, token_usage).
+    Args:
+        messages: List of messages to analyze
+        account_id: The account ID
+        conversation_id: The conversation ID
+        session_id: The session ID for authorization
+    
+    Returns:
+        Tuple[int, Dict[str, int]]: (ev_score, token_usage)
     """
     logger.info(f"Calculating EV for {len(messages)} messages")
     
@@ -63,43 +70,24 @@ def calc_ev(messages: list, account_id: str, conversation_id: str) -> Tuple[int,
             "   • Message frequency and engagement (each back-and-forth = +3-7%)\n"
             "   • Pre-approval status (+12-18%), tour readiness (+15-20%), offer readiness (+25-30%)\n"
             "5. If you have very little context, still make your best speculative guess "
-            "but use precise numbers (e.g., 'Thanks, I'll pass for now' = 7, not 5 or 10).\n"
-            "6. Under no circumstances output anything other than that single integer. "
-            "No labels, no notes, no newlines—nothing but a numeric digit string.\n\n"
-            "FEW‐SHOT EXAMPLES (for illustration only; do not include anything but the integer after you see the real emails):\n\n"
-            "Example 1:\n"
-            "Buyer: 'Thanks, I'll think about it. Just browsing for now.'\n"
-            "Realtor: 'Sure, let me know if you have any questions.'\n"
-            "→ 7\n\n"
-            "Example 2:\n"
-            "Buyer: 'I'm pre‐approved and would like to tour 123 Main St this Saturday.'\n"
-            "Realtor: 'Booked for Saturday at 2 p.m.; let me know if you need anything else.'\n"
-            "→ 67\n\n"
-            "Example 3:\n"
-            "Buyer: 'Can you send comps and more details on HOA fees? I'm hoping to submit an offer next week.'\n"
-            "Realtor: 'Absolutely—comps are attached. I'll schedule a call for tomorrow.'\n"
-            "→ 83\n\n"
-            "Example 4:\n"
-            "Buyer: 'The house looks nice but I'm still considering a few other options.'\n"
-            "Realtor: 'I understand. Would you like to see some similar properties?'\n"
-            "→ 31\n\n"
-            "Now evaluate the following messages in chronological order and return exactly one integer "
-            "(0–100) that best estimates the percent chance of conversion.\n"
+            "based on the available signals, but lean conservative (lower scores)."
         )
     }
 
-    payload_messages = [system_prompt] + messages
+    user_message = {
+        "role": "user",
+        "content": f"Here is the email thread:\n{json.dumps(messages, indent=2)}\n\nBased on the conversation above, what is the likelihood (0-100) that this buyer will convert? Return ONLY the integer:"
+    }
 
     payload = {
         "model": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
-        "messages": payload_messages,
-        "max_tokens": 3,
-        "temperature": 0.3,
-        "top_p": 0.9,
-        "top_k": 40,
-        "repetition_penalty": 1.2,
-        "stop": ["<|im_end|>", "<|endoftext|>"],
-        "stream": False
+        "messages": [system_prompt, user_message],
+        "max_tokens": 5,  # We only need a very short response
+        "temperature": 0.0,  # Zero temperature for deterministic responses
+        "top_p": 0.1,  # Low top_p for focused sampling
+        "frequency_penalty": 0.0,  # No frequency penalty needed
+        "presence_penalty": 0.0,  # No presence penalty needed
+        "stop": ["\n", ".", " ", ","]  # Stop at any punctuation or space
     }
 
     try:
@@ -144,7 +132,8 @@ def calc_ev(messages: list, account_id: str, conversation_id: str) -> Tuple[int,
                     output_tokens=token_usage['output_tokens'],
                     llm_email_type='ev_calculation',
                     model_name='meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8',
-                    conversation_id=conversation_id
+                    conversation_id=conversation_id,
+                    session_id=session_id
                 )
                 
                 return ev_score, token_usage
