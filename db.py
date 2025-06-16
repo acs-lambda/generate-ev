@@ -5,10 +5,9 @@ import logging
 from typing import Dict, Any, Optional, List, Tuple
 from config import AWS_REGION, DB_SELECT_LAMBDA
 import time
-from utils import *
 import uuid
-from config import logger
 from utils import db_select, db_update, invoke_lambda, LambdaError
+from config import logger
 
 
 logger = logging.getLogger()
@@ -125,4 +124,24 @@ def store_ai_invocation(account_id, conversation_id, llm_email_type, model_name,
         'output_tokens': output_tokens,
         'created_at': int(time.time()),
     }
-    return db_update('Invocations', 'invocation_id-index', 'invocation_id', invocation_id, update_data, account_id, session_id) 
+    return db_update('Invocations', 'invocation_id-index', 'invocation_id', invocation_id, update_data, account_id, session_id)
+
+def check_and_update_ai_rate_limit(account_id, session_id):
+    """
+    Checks and updates the AI rate limit for a given account by invoking the rate-limit-ai lambda.
+    """
+    try:
+        payload = {'client_id': account_id, 'session': session_id}
+        response = invoke_lambda('RateLimitAI', payload)
+        
+        if response.get('statusCode') != 200:
+            return True, "Rate limit check passed."
+            
+        body = json.loads(response.get('body', '{}'))
+        return True, body.get('message', "Rate limit check passed.")
+
+    except LambdaError as e:
+        logger.error(f"AI rate limit check failed for account {account_id}: {e.message}")
+        if e.status_code == 429:
+            return False, "Rate limit exceeded."
+        raise
