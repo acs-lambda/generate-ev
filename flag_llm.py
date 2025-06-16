@@ -26,66 +26,57 @@ def format_conversation_for_llm(chain: List[Dict[str, Any]]) -> str:
     
     return "\n".join(formatted_chain)
 
-def invoke_flag_llm(conversation_chain: List[Dict[str, Any]], account_id: str, conversation_id: str) -> Tuple[bool, Dict[str, int]]:
+def invoke_flag_llm(conversation_chain: List[Dict[str, Any]], account_id: str, conversation_id: str, session_id: str) -> Tuple[bool, Dict[str, int]]:
     """
-    Invokes the Together AI LLM to determine if the email should be flagged.
-    Returns a tuple of (flag_decision, token_usage).
+    Invoke the flag LLM to determine if a conversation should be flagged.
     
     Args:
-        conversation_chain: List of email messages
-        account_id: The user's account ID
+        conversation_chain: List of conversation messages
+        account_id: The account ID
         conversation_id: The conversation ID
+        session_id: The session ID for authorization
     
     Returns:
-        Tuple[bool, Dict[str, int]]: (flag decision, token usage info)
+        Tuple[bool, Dict[str, int]]: (should_flag, token_usage)
     """
     try:
-        # Check AI rate limit
-        is_allowed, message = check_and_update_ai_rate_limit(account_id)
-        if not is_allowed:
-            logger.error(f"AI rate limit exceeded for account {account_id}")
-            return False, {'input_tokens': 0, 'output_tokens': 0}
-            
-        # Format the conversation for the LLM
-        formatted_conversation = format_conversation_for_llm(conversation_chain)
+        # Format conversation for LLM
+        formatted_chain = format_conversation_for_llm(conversation_chain)
         
+        # Prepare system prompt
+        system_prompt = {
+            "role": "system",
+            "content": (
+                "You are an assistant that determines if a conversation between a realtor and a buyer "
+                "should be flagged for review. Return exactly one word: 'flag' if the conversation "
+                "should be flagged, or 'ok' if it should not be flagged.\n\n"
+                "Flag the conversation if:\n"
+                "1. The buyer expresses serious interest in buying\n"
+                "2. The buyer asks about viewing the property\n"
+                "3. The buyer discusses financing or pre-approval\n"
+                "4. The buyer asks about making an offer\n"
+                "5. The conversation shows strong buying signals\n\n"
+                "Do not flag if:\n"
+                "1. The buyer is just asking general questions\n"
+                "2. The buyer is not showing clear buying interest\n"
+                "3. The conversation is just about scheduling or logistics\n"
+                "4. The buyer is not ready to move forward\n"
+                "5. The conversation is ambiguous or unclear\n\n"
+                "Return ONLY 'flag' or 'ok', nothing else."
+            )
+        }
+        
+        # Prepare user message
+        user_message = {
+            "role": "user",
+            "content": formatted_chain
+        }
+        
+        # Make API call
         url = "https://api.together.xyz/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {TAI_KEY}",
             "Content-Type": "application/json"
-        }
-
-        system_prompt = {
-            "role": "system",
-            "content": """You are a specialized real estate deal progression analyzer. Your task is to identify when a conversation needs human intervention to close a deal or handle tasks that AI cannot perform.
-
-IMPORTANT: You can ONLY respond with either "flag" or "false". No other text or explanation.
-
-Flag the email if ANY of these conditions indicate the conversation is ready for human intervention:
-1. The client shows clear buying/selling intent and is ready to move forward
-2. There are specific requests for property viewings or showings
-3. The client wants to discuss or negotiate specific terms of a deal
-4. There are requests for in-person meetings or calls
-5. The client is ready to make an offer or discuss pricing
-6. There are questions about contracts, legal documents, or signing processes
-7. The client needs help with mortgage pre-approval or financing options
-8. There are specific scheduling requests for property tours or inspections
-9. The client wants to discuss property-specific details that require human expertise
-10. There are requests for market analysis or property comparisons
-
-Do NOT flag if:
-1. The conversation is still in early stages of general inquiry
-2. The client is just gathering initial information
-3. The email is purely informational or confirmatory
-4. The conversation can be handled by AI responses
-5. There are no specific actions or decisions needed from a human
-
-Remember: The goal is to identify when a human realtor needs to step in to close a deal or handle tasks that AI cannot perform."""
-        }
-
-        user_message = {
-            "role": "user",
-            "content": f"Here is the email conversation:\n{formatted_conversation}\n\nBased on the conversation above, should this email be flagged for human realtor intervention? Respond with ONLY \"flag\" or \"false\":"
         }
 
         payload = {
@@ -134,7 +125,8 @@ Remember: The goal is to identify when a human realtor needs to step in to close
             output_tokens=token_usage['output_tokens'],
             llm_email_type='flag',
             model_name='meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8',
-            conversation_id=conversation_id
+            conversation_id=conversation_id,
+            session_id=session_id
         )
 
         # Return True if the response is "flag", False otherwise

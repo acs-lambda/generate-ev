@@ -121,3 +121,74 @@ def authorize(user_id: str, session_id: str) -> None:
     except Exception as e:
         logger.error(f"Unexpected error during authorization: {str(e)}")
         raise AuthorizationError("ACS: Unauthorized") 
+    
+def select(table_name: str, index_name: str, key_name: str, key_value: str, account_id: str, session_id: str) -> Dict[str, Any]:
+    """
+    Select a record from a DynamoDB table by key
+    
+    Args:
+        table_name (str): The name of the DynamoDB table
+        index_name (str): The name of the index to use
+        key_name (str): The name of the key to use
+        key_value (str): The value of the key to use
+        account_id (str): The account ID to validate ownership
+        session_id (str): The session ID to validate
+        
+    Returns:
+        Dict[str, Any]: The selected record
+        
+    Raises:
+        AuthorizationError: If authorization fails
+    """
+    try:
+        # Invoke the select Lambda function
+        response = invoke('DBSelect', {
+            'table_name': table_name,
+            'index_name': index_name,
+            'key_name': key_name,
+            'key_value': key_value,
+            'account_id': account_id,
+            'session_id': session_id
+        })
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error selecting record: {str(e)}")
+        raise
+
+def update(table_name: str, index_name: str, key_name: str, key_value: str, account_id: str, session_id: str) -> Dict[str, Any]:
+    """
+    Update a record in a DynamoDB table by key
+    
+    Args:
+        table_name (str): The name of the DynamoDB table
+        index_name (str): The name of the index to use
+        key_name (str): The name of the key to use
+        key_value (str): The value of the key to use
+        account_id (str): The account ID to validate ownership
+        session_id (str): The session ID to validate
+        
+    Returns:
+        Dict[str, Any]: The updated record
+        
+    Raises:
+        AuthorizationError: If authorization fails
+    """
+    try:
+        # Invoke the update Lambda function
+        response = invoke('DBUpdate', {
+            'table_name': table_name,
+            'index_name': index_name,
+            'key_name': key_name,
+            'key_value': key_value,
+            'account_id': account_id,
+            'session_id': session_id
+        })
+        
+        return response
+    
+    except Exception as e:
+        logger.error(f"Error updating record: {str(e)}")
+        raise
+    

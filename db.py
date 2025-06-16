@@ -5,6 +5,7 @@ import logging
 from typing import Dict, Any, Optional, List, Tuple
 from config import AWS_REGION, DB_SELECT_LAMBDA
 import time
+from utils import *
 import uuid
 
 logger = logging.getLogger()
@@ -13,47 +14,19 @@ logger.setLevel(logging.INFO)
 lambda_client = boto3.client('lambda', region_name=AWS_REGION)
 dynamodb = boto3.resource('dynamodb', region_name=AWS_REGION)
 
-def invoke_db_select(table_name: str, index_name: Optional[str], key_name: str, key_value: Any) -> Optional[List[Dict[str, Any]]]:
-    """
-    Generic function to invoke the db-select Lambda for read operations only.
-    Returns a list of items or None if the invocation failed.
-    """
-    try:
-        payload = {
-            'table_name': table_name,
-            'index_name': index_name,
-            'key_name': key_name,
-            'key_value': key_value
-        }
-        
-        response = lambda_client.invoke(
-            FunctionName=DB_SELECT_LAMBDA,
-            InvocationType='RequestResponse',
-            Payload=json.dumps(payload)
-        )
-        
-        response_payload = json.loads(response['Payload'].read())
-        if response_payload['statusCode'] != 200:
-            logger.error(f"Database Lambda failed: {response_payload}")
-            return None
-            
-        result = json.loads(response_payload['body'])
-        logger.info(f"Database Lambda response: {result}")
-        return result if isinstance(result, list) else None
-    except Exception as e:
-        logger.error(f"Error invoking database Lambda: {str(e)}")
-        return None
 
-def get_conversation_id(message_id: str) -> Optional[str]:
+def get_conversation_id(message_id: str, account_id: str, session_id: str) -> Optional[str]:
     """Get conversation ID by message ID."""
     if not message_id:
         return None
     
-    result = invoke_db_select(
+    result = select(
         table_name='Conversations',
         index_name='response_id-index',
         key_name='response_id',
-        key_value=message_id
+        key_value=message_id,
+        account_id=account_id,
+        session_id=session_id
     )
     
     # Handle list response
@@ -61,13 +34,15 @@ def get_conversation_id(message_id: str) -> Optional[str]:
         return result[0].get('conversation_id')
     return None
 
-def get_associated_account(email: str) -> Optional[str]:
+def get_associated_account(email: str, account_id: str, session_id: str) -> Optional[str]:
     """Get account ID by email."""
-    result = invoke_db_select(
+    result = select(
         table_name='Users',
         index_name='responseEmail-index',
         key_name='responseEmail',
-        key_value=email.lower()
+        key_value=email.lower(),
+        account_id=account_id,
+        session_id=session_id
     )
     
     # Handle list response
@@ -75,13 +50,15 @@ def get_associated_account(email: str) -> Optional[str]:
         return result[0].get('id')
     return None
 
-def get_email_chain(conversation_id: str) -> List[Dict[str, Any]]:
+def get_email_chain(conversation_id: str, account_id: str, session_id: str) -> List[Dict[str, Any]]:
     """Get email chain for a conversation."""
-    result = invoke_db_select(
+    result = select(
         table_name='Conversations',
         index_name='conversation_id-index',
         key_name='conversation_id',
-        key_value=conversation_id
+        key_value=conversation_id,
+        account_id=account_id,
+        session_id=session_id
     )
     
     # Handle list response directly
@@ -99,13 +76,15 @@ def get_email_chain(conversation_id: str) -> List[Dict[str, Any]]:
         'type': item.get('type', '')
     } for item in sorted_items]
 
-def get_account_email(account_id: str) -> Optional[str]:
+def get_account_email(account_id: str, session_id: str) -> Optional[str]:
     """Get account email by account ID."""
-    result = invoke_db_select(
+    result = select(
         table_name='Users',
         index_name='id-index',
         key_name='id',
-        key_value=account_id
+        key_value=account_id,
+        account_id=account_id,
+        session_id=session_id
     )
     
     # Handle list response
@@ -113,38 +92,84 @@ def get_account_email(account_id: str) -> Optional[str]:
         return result[0].get('responseEmail')
     return None
 
-def update_thread_ev(conversation_id: str, ev_score: int) -> bool:
-    """Update thread with new EV score using direct DynamoDB access."""
+def update_thread_ev(conversation_id: str, ev_score: int, flag_decision: int, account_id: str, session_id: str) -> bool:
+    """
+    Update the EV score and flag status for a thread.
+    
+    Args:
+        conversation_id (str): The conversation ID to update
+        ev_score (int): The calculated EV score
+        flag_decision (int): The flag decision from the LLM
+        account_id (str): The account ID for authorization
+        session_id (str): The session ID for authorization
+    
+    Returns:
+        bool: True if update was successful, False otherwise
+    """
     try:
-        threads_table = dynamodb.Table('Threads')
-        threads_table.update_item(
-            Key={'conversation_id': conversation_id},
-            UpdateExpression='SET #flag = :flag',
-            ExpressionAttributeNames={'#flag': 'flag'},
-            ExpressionAttributeValues={':flag': ev_score >= 80}
+        update_data = {
+            'flag': flag_decision,
+            'ev_score': ev_score,
+            'updated_at': int(time.time())
+        }
+        
+        success = update(
+            table_name='Threads',
+            key_name='conversation_id',
+            key_value=conversation_id,
+            index_name='conversation_id-index',
+            update_data=update_data,
+            account_id=account_id
         )
-        logger.info(f"Successfully updated thread EV score for conversation {conversation_id}")
-        return True
+        
+        if success:
+            logger.info(f"Updated thread EV score to {ev_score} and flag to {flag_decision} for conversation {conversation_id}")
+        else:
+            logger.error(f"Failed to update thread EV score for conversation {conversation_id}")
+        
+        return success
+        
     except Exception as e:
-        logger.error(f"Error updating thread EV score: {str(e)}")
+        logger.error(f"Error updating thread EV: {str(e)}")
         return False
 
-def update_conversation_ev(conversation_id: str, message_id: str, ev_score: int) -> bool:
-    """Update conversation with EV score using direct DynamoDB access."""
+def update_conversation_ev(conversation_id: str, ev_score: int, account_id: str, session_id: str) -> bool:
+    """
+    Update the EV score for a conversation.
+    
+    Args:
+        conversation_id (str): The conversation ID to update
+        ev_score (int): The calculated EV score
+        account_id (str): The account ID for authorization
+        session_id (str): The session ID for authorization
+    
+    Returns:
+        bool: True if update was successful, False otherwise
+    """
     try:
-        conversations_table = dynamodb.Table('Conversations')
-        conversations_table.update_item(
-            Key={
-                'conversation_id': conversation_id,
-                'response_id': message_id
-            },
-            UpdateExpression='SET ev_score = :ev',
-            ExpressionAttributeValues={':ev': str(ev_score)}
+        update_data = {
+            'ev_score': ev_score,
+            'updated_at': int(time.time())
+        }
+        
+        success = update(
+            table_name='Conversations',
+            key_name='conversation_id',
+            key_value=conversation_id,
+            index_name='conversation_id-index',
+            update_data=update_data,
+            account_id=account_id
         )
-        logger.info(f"Successfully updated conversation EV score for {conversation_id} message {message_id}")
-        return True
+        
+        if success:
+            logger.info(f"Updated conversation EV score to {ev_score} for conversation {conversation_id}")
+        else:
+            logger.error(f"Failed to update conversation EV score for conversation {conversation_id}")
+        
+        return success
+        
     except Exception as e:
-        logger.error(f"Error updating conversation EV score: {str(e)}")
+        logger.error(f"Error updating conversation EV: {str(e)}")
         return False
 
 def store_ai_invocation(
@@ -153,48 +178,57 @@ def store_ai_invocation(
     output_tokens: int,
     llm_email_type: str,
     model_name: str,
-    conversation_id: Optional[str] = None
+    conversation_id: str,
+    session_id: str
 ) -> bool:
     """
-    Store an AI invocation record in DynamoDB.
+    Store a record of an AI invocation in the Invocations table.
     
     Args:
-        associated_account: The user's account ID
-        input_tokens: Number of input tokens used
-        output_tokens: Number of output tokens generated
-        llm_email_type: Type of LLM invocation (e.g., 'flag', 'ev_calculation')
-        model_name: Name of the model used
-        conversation_id: Optional conversation ID if applicable
+        associated_account (str): The account ID associated with the invocation
+        input_tokens (int): Number of input tokens used
+        output_tokens (int): Number of output tokens used
+        llm_email_type (str): Type of LLM invocation (e.g., 'ev_calculation', 'flag')
+        model_name (str): Name of the model used
+        conversation_id (str): The conversation ID
+        session_id (str): The session ID for authorization
     
     Returns:
-        bool: True if successful, False otherwise
+        bool: True if storage was successful, False otherwise
     """
     try:
-        invocations_table = dynamodb.Table('Invocations')
+        timestamp = int(time.time())
+        invocation_id = f"{conversation_id}_{timestamp}_{llm_email_type}"
         
-        # Create timestamp for sorting
-        timestamp = int(time.time() * 1000)  # Current time in milliseconds
-        
-        item = {
-            'id': str(uuid.uuid4()),  # Generate unique ID for the invocation
+        update_data = {
             'associated_account': associated_account,
             'input_tokens': input_tokens,
             'output_tokens': output_tokens,
             'llm_email_type': llm_email_type,
             'model_name': model_name,
-            'timestamp': timestamp
+            'conversation_id': conversation_id,
+            'created_at': timestamp,
+            'updated_at': timestamp
         }
         
-        # Add conversation_id if provided
-        if conversation_id:
-            item['conversation_id'] = conversation_id
-            
-        invocations_table.put_item(Item=item)
-        logger.info(f"Successfully stored AI invocation record for account {associated_account}")
-        return True
+        success = update(
+            table_name='Invocations',
+            key_name='invocation_id',
+            key_value=invocation_id,
+            index_name='invocation_id-index',
+            update_data=update_data,
+            account_id=associated_account
+        )
+        
+        if success:
+            logger.info(f"Stored AI invocation record for conversation {conversation_id}")
+        else:
+            logger.error(f"Failed to store AI invocation record for conversation {conversation_id}")
+        
+        return success
         
     except Exception as e:
-        logger.error(f"Error storing AI invocation record: {str(e)}")
+        logger.error(f"Error storing AI invocation: {str(e)}")
         return False
 
 def get_user_rate_limits(account_id: str) -> Dict[str, int]:
