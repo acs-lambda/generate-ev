@@ -179,7 +179,7 @@ def check_aws_rate_limit(account_id: str) -> Tuple[bool, str]:
         
         # Invoke rate-limit-aws Lambda
         response = lambda_client.invoke(
-            FunctionName='rate-limit-aws',
+            FunctionName='RateLimitAWS',
             InvocationType='RequestResponse',
             Payload=json.dumps(payload)
         )
