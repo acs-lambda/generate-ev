@@ -7,7 +7,7 @@ import time
 from ev_calculator import calc_ev, parse_messages
 from db import get_email_chain, get_account_email
 from flag_llm import invoke_flag_llm
-from utils import parse_event, authorize, AuthorizationError, invoke, create_response, LambdaError
+from utils import parse_event, authorize, AuthorizationError, invoke_lambda, create_response, LambdaError
 import os
 from ev_logic import calculate_ev_for_conversation
 
