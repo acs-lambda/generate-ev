@@ -101,8 +101,8 @@ def calculate_ev_for_conversation(conversation_id: str, account_id: str, session
     Returns:
         Tuple[int, Dict[str, int]]: (ev_score, token_usage)
     """
-    # Get the email chain and realtor email
-    chain, realtor_email = get_email_chain(conversation_id, account_id, session_id)
+    # Get the email chain
+    chain = get_email_chain(conversation_id, account_id, session_id)
     if not chain:
         logger.error(f"Failed to get email chain for conversation {conversation_id}")
         return -1, {'input_tokens': 0, 'output_tokens': 0}
