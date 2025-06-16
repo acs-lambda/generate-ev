@@ -33,7 +33,7 @@ def calc_ev(messages: list, account_id: str, conversation_id: str, session_id: s
     logger.info(f"Calculating EV for {len(messages)} messages")
     
     # Check AI rate limit
-    is_allowed, message = check_and_update_ai_rate_limit(account_id)
+    is_allowed, message = check_and_update_ai_rate_limit(account_id, session_id)
     if not is_allowed:
         logger.error(f"AI rate limit exceeded for account {account_id}")
         return -4, {'input_tokens': 0, 'output_tokens': 0}
