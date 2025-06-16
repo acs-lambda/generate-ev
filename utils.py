@@ -1,10 +1,12 @@
 import json
 import boto3
+import time
 from typing import Dict, Any
 from botocore.exceptions import ClientError
 from config import logger, AWS_REGION
 
 lambda_client = boto3.client("lambda", region_name=AWS_REGION)
+dynamodb = boto3.resource('dynamodb')
 
 class LambdaError(Exception):
     def __init__(self, status_code, message):
@@ -172,4 +174,83 @@ def update(table_name: str, index_name: str, key_name: str, key_value: str, acco
     except Exception as e:
         logger.error(f"Error updating record: {str(e)}")
         raise
+
+# Database utility functions moved from lambda_function.py and ev_logic.py
+def store_ai_invocation(associated_account: str, input_tokens: int, output_tokens: int, 
+                       llm_email_type: str, model_name: str, conversation_id: str, 
+                       session_id: str) -> bool:
+    """Store AI invocation record in DynamoDB."""
+    try:
+        ai_invocations_table = dynamodb.Table('Invocations')
+        ai_invocations_table.put_item(
+            Item={
+                'associated_account': associated_account,
+                'timestamp': int(time.time()),
+                'input_tokens': input_tokens,
+                'output_tokens': output_tokens,
+                'llm_email_type': llm_email_type,
+                'model_name': model_name,
+                'conversation_id': conversation_id,
+                'session_id': session_id
+            }
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error storing AI invocation: {str(e)}")
+        return False
+
+def update_thread_ev(conversation_id: str, ev_score: int, should_flag: bool, account_id: str, session_id: str) -> bool:
+    """
+    Updates the thread with the new EV score and flag status.
+    """
+    try:
+        threads_table = dynamodb.Table('Threads')
+        threads_table.update_item(
+            Key={
+                'conversation_id': conversation_id
+            },
+            UpdateExpression='SET #flag = :flag, ev_score = :ev',
+            ExpressionAttributeNames={
+                '#flag': 'flag'
+            },
+            ExpressionAttributeValues={
+                ':flag': should_flag,
+                ':ev': str(ev_score)
+            }
+        )
+        logger.info(f"Updated thread flag for conversation {conversation_id} with EV score {ev_score} and flag {should_flag}")
+        return True
+    except Exception as e:
+        logger.error(f"Error updating thread flag: {str(e)}")
+        return False
+
+def update_conversation_ev(conversation_id: str, message_id: str, ev_score: int, account_id: str, session_id: str) -> bool:
+    """
+    Updates the conversation with the EV score.
+    """
+    try:
+        conversations_table = dynamodb.Table('Conversations')
+        conversations_table.update_item(
+            Key={
+                'conversation_id': conversation_id,
+                'response_id': message_id
+            },
+            UpdateExpression='SET ev_score = :ev',
+            ExpressionAttributeValues={
+                ':ev': str(ev_score)
+            }
+        )
+        logger.info(f"Updated conversation EV score for {conversation_id} message {message_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Error updating conversation EV score: {str(e)}")
+        return False
+
+def check_aws_rate_limit(account_id: str, session_id: str) -> None:
+    """
+    Checks the AWS rate limit for a given account by invoking the rate-limit-aws lambda.
+    """
+    payload = {'client_id': account_id, 'session': session_id}
+    # This invocation is already designed to raise LambdaError on failure
+    invoke_lambda('RateLimitAWS', payload)
     

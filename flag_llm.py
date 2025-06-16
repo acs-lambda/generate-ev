@@ -3,7 +3,8 @@ import urllib3
 import logging
 from typing import Dict, Any, List, Tuple
 from config import TAI_KEY
-from db import store_ai_invocation, check_and_update_ai_rate_limit
+from db import check_and_update_ai_rate_limit
+from utils import store_ai_invocation
 
 # Set up logging
 logger = logging.getLogger()
