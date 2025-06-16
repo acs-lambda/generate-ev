@@ -7,8 +7,9 @@ import time
 from ev_calculator import calc_ev, parse_messages
 from db import get_email_chain, get_account_email
 from flag_llm import invoke_flag_llm
-from utils import parse_event, authorize, AuthorizationError, invoke
+from utils import parse_event, authorize, AuthorizationError, invoke, create_response, LambdaError
 import os
+from ev_logic import calculate_ev_for_conversation
 
 # Set up logging
 logger = logging.getLogger()
@@ -155,157 +156,46 @@ def calculate_ev_for_conversation(conversation_id: str, account_id: str, session
     
     return ev_score, token_usage
 
-def check_aws_rate_limit(account_id: str) -> Tuple[bool, str]:
+def check_aws_rate_limit(account_id, session_id):
     """
-    Check if the account has exceeded its AWS Lambda invocation rate limit
-    by calling the rate-limit-aws Lambda function.
-    
-    Args:
-        account_id (str): The account ID to check
-    
-    Returns:
-        Tuple[bool, str]: (is_allowed, message)
-            - is_allowed: True if the account is within rate limits, False otherwise
-            - message: Success message or error description
+    Checks the AWS rate limit for a given account by invoking the rate-limit-aws lambda.
     """
-    try:
-        lambda_client = boto3.client('lambda')
-        
-        # Prepare payload for rate-limit-aws Lambda
-        payload = {
-            'account_id': account_id,
-            'action': 'check'  # Action to check rate limit
-        }
-        
-        # Invoke rate-limit-aws Lambda
-        response = lambda_client.invoke(
-            FunctionName='RateLimitAWS',
-            InvocationType='RequestResponse',
-            Payload=json.dumps(payload)
-        )
-        
-        # Parse response
-        response_payload = json.loads(response['Payload'].read().decode('utf-8'))
-        
-        if response['StatusCode'] != 200:
-            logger.error(f"Rate limit check failed with status {response['StatusCode']}: {response_payload}")
-            return False, "Rate limit check failed"
-        
-        # Check if rate limit is exceeded
-        if not response_payload.get('is_allowed', False):
-            return False, response_payload.get('message', 'Rate limit exceeded')
-        
-        return True, "Rate limit check passed"
-        
-    except Exception as e:
-        logger.error(f"Error checking AWS rate limit: {str(e)}")
-        return False, f"Error checking rate limit: {str(e)}"
+    payload = {'client_id': account_id, 'session': session_id}
+    # This invocation is already designed to raise LambdaError on failure
+    invoke_lambda('RateLimitAWS', payload)
 
-def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """
-    Lambda handler for EV calculation.
-    
-    Args:
-        event (Dict[str, Any]): The event data
-        context (Any): The Lambda context
-    
-    Returns:
-        Dict[str, Any]: The response
-    """
+def lambda_handler(event, context):
     try:
-        # Extract and validate required fields
         parsed_event = parse_event(event)
+        
         conversation_id = parsed_event.get('conversation_id')
         account_id = parsed_event.get('account_id')
         session_id = parsed_event.get('session_id')
         
         if not all([conversation_id, account_id, session_id]):
-            return {
-                'statusCode': 400,
-                'headers': {
-                    'Access-Control-Allow-Origin': '*'
-                },
-                'body': json.dumps({
-                    'status': 'error',
-                    'error': 'Missing required fields: conversation_id, account_id, or session_id'
-                })
-            }
+            raise LambdaError(400, "Missing required fields: conversation_id, account_id, or session_id.")
         
         if session_id != AUTH_BP:
-            try:
-                authorize(account_id, session_id)
-            except AuthorizationError as e:
-                return {
-                    'statusCode': 401,
-                    'headers': {
-                        'Access-Control-Allow-Origin': '*'
-                    },
-                    'body': json.dumps({
-                        'status': 'error',
-                        'error': str(e)
-                    })
-                }
-            except Exception as e:
-                logger.error(f"Error authorizing: {str(e)}")
-                return {
-                    'statusCode': 500,
-                    'headers': {
-                        'Access-Control-Allow-Origin': '*'
-                    },
-                    'body': json.dumps({
-                        'status': 'error',
-                        'error': str(e)
-                    })
-                }
+            authorize(account_id, session_id)
+            check_aws_rate_limit(account_id, session_id)
         
-        
-        # Check AWS rate limit
-        is_allowed, message = check_aws_rate_limit(account_id)
-        if not is_allowed:
-            return {
-                'statusCode': 429,
-                'headers': {
-                    'Access-Control-Allow-Origin': '*'
-                },
-                'body': json.dumps({
-                    'status': 'error',
-                    'error': message
-                })
-            }
-        
-        # Calculate EV and update database
         ev_score, token_usage = calculate_ev_for_conversation(
             conversation_id=conversation_id,
             account_id=account_id,
             session_id=session_id
         )
         
-        # Format response based on success/failure
-        status_code = 200 if ev_score >= 0 else 500
-        response = {
-            'statusCode': status_code,
-            'headers': {
-                'Access-Control-Allow-Origin': '*'
-            },
-            'body': json.dumps({
-                'ev_score': ev_score,
-                'conversation_id': conversation_id,
-                'status': 'success' if ev_score >= 0 else 'error',
-                'token_usage': token_usage
-            })
+        response_body = {
+            'ev_score': ev_score,
+            'conversation_id': conversation_id,
+            'status': 'success',
+            'token_usage': token_usage
         }
+        return create_response(200, response_body)
         
-        return response
-        
+    except LambdaError as e:
+        logger.error(f"Error processing EV calculation: {e.message}")
+        return create_response(e.status_code, {"status": "error", "error": e.message})
     except Exception as e:
-        logger.error(f"Error in lambda_handler: {str(e)}")
-        return {
-            'statusCode': 500,
-            'headers': {
-                'Access-Control-Allow-Origin': '*'
-            },
-            'body': json.dumps({
-                'status': 'error',
-                'error': str(e)
-            })
-        } 
+        logger.error(f"An unexpected error occurred in lambda_handler: {e}")
+        return create_response(500, {"status": "error", "error": "An internal server error occurred."}) 
