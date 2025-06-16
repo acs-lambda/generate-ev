@@ -181,9 +181,13 @@ def store_ai_invocation(associated_account: str, input_tokens: int, output_token
                        session_id: str) -> bool:
     """Store AI invocation record in DynamoDB."""
     try:
+        # Generate a unique ID for the invocation record
+        invocation_id = f"{conversation_id}_{int(time.time())}_{llm_email_type}"
+        
         ai_invocations_table = dynamodb.Table('Invocations')
         ai_invocations_table.put_item(
             Item={
+                'id': invocation_id,  # Primary key required by the table
                 'associated_account': associated_account,
                 'timestamp': int(time.time()),
                 'input_tokens': input_tokens,
@@ -191,7 +195,6 @@ def store_ai_invocation(associated_account: str, input_tokens: int, output_token
                 'llm_email_type': llm_email_type,
                 'model_name': model_name,
                 'conversation_id': conversation_id,
-                'session_id': session_id
             }
         )
         return True
