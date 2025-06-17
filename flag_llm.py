@@ -131,7 +131,7 @@ def invoke_flag_llm(conversation_chain: List[Dict[str, Any]], account_id: str, c
         )
 
         # Return True if the response is "flag", False otherwise
-        return response_text == "flag", token_usage
+        return ('true' if response_text == "flag" else 'false', token_usage)
 
     except Exception as e:
         logger.error(f"Error invoking flag LLM: {str(e)}")

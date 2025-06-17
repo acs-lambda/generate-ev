@@ -202,7 +202,7 @@ def store_ai_invocation(associated_account: str, input_tokens: int, output_token
         logger.error(f"Error storing AI invocation: {str(e)}")
         return False
 
-def update_thread_ev(conversation_id: str, ev_score: int, should_flag: bool, account_id: str, session_id: str) -> bool:
+def update_thread_ev(conversation_id: str, ev_score: int, should_flag: str, account_id: str, session_id: str) -> bool:
     """
     Updates the thread with the new EV score and flag status.
     """
