@@ -229,19 +229,21 @@ def update_thread_ev(conversation_id: str, ev_score: int, should_flag: bool, acc
 
 def update_conversation_ev(conversation_id: str, message_id: str, ev_score: int, account_id: str, session_id: str) -> bool:
     """
-    Updates the conversation with the EV score.
+    Updates the conversation with the EV score using GSI and modular approach.
     """
     try:
-        conversations_table = dynamodb.Table('Conversations')
-        conversations_table.update_item(
-            Key={
-                'conversation_id': conversation_id,
-            },
-            UpdateExpression='SET ev_score = :ev',
-            ExpressionAttributeValues={
-                ':ev': str(ev_score)
-            }
+        # Use the modular db_update function with GSI
+        update_data = {'ev_score': str(ev_score)}
+        response = db_update(
+            table_name='Conversations',
+            index_name='conversation_id-index',  # GSI name - adjust as needed
+            key_name='conversation_id',
+            key_value=conversation_id,
+            update_data=update_data,
+            account_id=account_id,
+            session_id=session_id
         )
+        
         logger.info(f"Updated conversation EV score for {conversation_id} message {message_id}")
         return True
     except Exception as e:
