@@ -8,55 +8,6 @@ from flag_llm import invoke_flag_llm
 
 dynamodb = boto3.resource('dynamodb')
 
-def store_ai_invocation(associated_account, input_tokens, output_tokens, llm_email_type, model_name, conversation_id, session_id):
-    """Store AI invocation record in DynamoDB."""
-    try:
-        ai_invocations_table = dynamodb.Table('Invocations')
-        ai_invocations_table.put_item(
-            Item={
-                'associated_account': associated_account,
-                'timestamp': int(time.time()),
-                'input_tokens': input_tokens,
-                'output_tokens': output_tokens,
-                'llm_email_type': llm_email_type,
-                'model_name': model_name,
-                'conversation_id': conversation_id,
-                'session_id': session_id
-            }
-        )
-    except Exception as e:
-        logger.error(f"Error storing AI invocation for {conversation_id}: {e}")
-        # Non-critical, so just log and continue
-
-def update_thread_ev(conversation_id, ev_score, should_flag, account_id, session_id):
-    """Updates the thread with the new EV score and flag status."""
-    try:
-        threads_table = dynamodb.Table('Threads')
-        threads_table.update_item(
-            Key={'conversation_id': conversation_id},
-            UpdateExpression='SET #flag = :flag, ev_score = :ev',
-            ExpressionAttributeNames={'#flag': 'flag'},
-            ExpressionAttributeValues={':flag': should_flag, ':ev': ev_score}
-        )
-    except Exception as e:
-        logger.error(f"Error updating thread EV for {conversation_id}: {e}")
-        return False
-    return True
-
-def update_conversation_ev(conversation_id, message_id, ev_score, account_id, session_id):
-    """Updates the conversation with the EV score."""
-    try:
-        conversations_table = dynamodb.Table('Conversations')
-        conversations_table.update_item(
-            Key={'conversation_id': conversation_id, 'response_id': message_id},
-            UpdateExpression='SET ev_score = :ev',
-            ExpressionAttributeValues={':ev': ev_score}
-        )
-    except Exception as e:
-        logger.error(f"Error updating conversation EV for {conversation_id}: {e}")
-        return False
-    return True
-
 def calculate_ev_for_conversation(conversation_id: str, account_id: str, session_id: str) -> tuple[int, dict[str, int]]:
     """
     Calculate the EV score for a conversation.
