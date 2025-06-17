@@ -236,7 +236,6 @@ def update_conversation_ev(conversation_id: str, message_id: str, ev_score: int,
         conversations_table.update_item(
             Key={
                 'conversation_id': conversation_id,
-                'response_id': message_id
             },
             UpdateExpression='SET ev_score = :ev',
             ExpressionAttributeValues={
