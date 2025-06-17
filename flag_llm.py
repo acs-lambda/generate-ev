@@ -63,6 +63,8 @@ def invoke_flag_llm(conversation_chain: List[Dict[str, Any]], account_id: str, c
                 "3. The conversation is just about scheduling or logistics\n"
                 "4. The buyer is not ready to move forward\n"
                 "5. The conversation is ambiguous or unclear\n\n"
+                
+                "The goal of this LLM is to flag conversations that we will hand over to the real realtor to close a deal."
                 "Return ONLY 'flag' or 'ok', nothing else."
             )
         }
