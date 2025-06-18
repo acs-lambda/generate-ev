@@ -205,23 +205,48 @@ def store_ai_invocation(associated_account: str, input_tokens: int, output_token
 def update_thread_ev(conversation_id: str, ev_score: int, should_flag: str, account_id: str, session_id: str) -> bool:
     """
     Updates the thread with the new EV score and flag status.
+    If the email gets flagged, also sets the 'busy' field to false.
     """
     try:
         threads_table = dynamodb.Table('Threads')
-        threads_table.update_item(
-            Key={
-                'conversation_id': conversation_id
-            },
-            UpdateExpression='SET #flag = :flag, ev_score = :ev',
-            ExpressionAttributeNames={
-                '#flag': 'flag'
-            },
-            ExpressionAttributeValues={
-                ':flag': should_flag,
-                ':ev': str(ev_score)
-            }
-        )
-        logger.info(f"Updated thread flag for conversation {conversation_id} with EV score {ev_score} and flag {should_flag}")
+        
+        # Determine if we need to set busy to false (when email is flagged)
+        should_set_busy_false = str(should_flag).lower() == 'true' or should_flag is True
+        
+        if should_set_busy_false:
+            # Update with flag, EV score, and set busy to false
+            threads_table.update_item(
+                Key={
+                    'conversation_id': conversation_id
+                },
+                UpdateExpression='SET #flag = :flag, ev_score = :ev, busy = :busy',
+                ExpressionAttributeNames={
+                    '#flag': 'flag'
+                },
+                ExpressionAttributeValues={
+                    ':flag': should_flag,
+                    ':ev': str(ev_score),
+                    ':busy': False
+                }
+            )
+            logger.info(f"Updated thread flag for conversation {conversation_id} with EV score {ev_score}, flag {should_flag}, and set busy to false")
+        else:
+            # Update with flag and EV score only
+            threads_table.update_item(
+                Key={
+                    'conversation_id': conversation_id
+                },
+                UpdateExpression='SET #flag = :flag, ev_score = :ev',
+                ExpressionAttributeNames={
+                    '#flag': 'flag'
+                },
+                ExpressionAttributeValues={
+                    ':flag': should_flag,
+                    ':ev': str(ev_score)
+                }
+            )
+            logger.info(f"Updated thread flag for conversation {conversation_id} with EV score {ev_score} and flag {should_flag}")
+        
         return True
     except Exception as e:
         logger.error(f"Error updating thread flag: {str(e)}")
