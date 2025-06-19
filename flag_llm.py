@@ -47,7 +47,25 @@ def invoke_flag_llm(conversation_chain: List[Dict[str, Any]], account_id: str, c
         # Prepare system prompt
         system_prompt = {
             "role": "system",
-            'content': 'You are an assistant that evaluates whether an AI-driven buyer–realtor conversation has reached true conversion readiness and should be handed off to a human realtor (i.e. exit the automated pipeline). Return exactly one word: "flag" if the lead is ready to be converted and needs a human realtor to close the deal, or "ok" if it should remain in automated nurturing.\n\nFlag (return "flag") only when the buyer:\n  1. Explicitly expresses firm intent to purchase ("I want to buy," "let\'s make an offer," etc.)\n  2. Asks to schedule a property viewing with no further qualification needed\n  3. Inquires about financing or pre-approval\n  4. Requests next steps toward making an offer or contract\n  5. Shows any unambiguous buying signal that a human touch is required to close\n\nDo NOT flag (return "ok") if the buyer:\n  1. Is only gathering general information (e.g. neighborhood questions)\n  2. Is asking purely about logistics or availability without stating intent to buy\n  3. Is in early-stage browsing or remains vague about buying\n  4. Requires more nurturing or qualification before human handoff\n\nThe goal is to escalate only fully qualified, ready-to-buy leads.  Return ONLY "flag" or "ok."'
+            'content': """You are an assistant that evaluates whether an AI-driven buyer–realtor conversation has reached true conversion readiness and should be handed off to a human realtor (i.e. exit the automated pipeline). 
+           
+           Return exactly one word: "flag" if the lead is ready to be converted and needs a human realtor to close the deal, or "ok" if it should remain in automated nurturing.
+           \n\nFlag (return "flag") only when the buyer:\n  
+           1. Explicitly expresses firm intent to purchase ("I want to buy," "let\'s make an offer," etc.)\n  
+           2. Asks to schedule a property viewing with no further qualification needed\n  
+           3. Inquires about financing or pre-approval\n  
+           4. Requests next steps toward making an offer or contract\n  
+           5. Shows any unambiguous buying signal that a human touch is required to close\n\n
+           
+           Note: If you feel like nowhere near enough content is available for the realtor at this point, do not return "flag".\n\n
+           
+           Do NOT flag (return "ok") if the buyer:\n  
+           1. Is only gathering general information (e.g. neighborhood questions)\n  
+           2. Is asking purely about logistics or availability without stating intent to buy\n  
+           3. Is in early-stage browsing or remains vague about buying\n  
+           4. Requires more nurturing or qualification before human handoff
+           
+           \n\nThe goal is to escalate only fully qualified, ready-to-buy leads.  Return ONLY "flag" or "ok."""
         }
         # Prepare user message
         user_message = {
@@ -113,7 +131,7 @@ def invoke_flag_llm(conversation_chain: List[Dict[str, Any]], account_id: str, c
         )
 
         # Return True if the response is "flag", False otherwise
-        return ('true' if response_text == "flag" else 'false', token_usage)
+        return (True if response_text == "flag" else False, token_usage)
 
     except Exception as e:
         logger.error(f"Error invoking flag LLM: {str(e)}")
